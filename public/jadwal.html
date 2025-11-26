@@ -1,0 +1,157 @@
+<?php
+require_once '../config/Database.php';
+require_once '../classes/Booking.php';
+
+$db = (new Database())->connect();
+$booking = new Booking($db);
+
+// Ambil parameter GET
+$sort = isset($_GET['sort']) && $_GET['sort'] === 'asc' ? 'asc' : 'desc';
+$status_filter = $_GET['status'] ?? '';
+$keyword = $_GET['search'] ?? '';
+$page = isset($_GET['page']) ? max(1, intval($_GET['page'])) : 1;
+$limit = 15;
+$offset = ($page - 1) * $limit;
+
+// Ambil semua data booking sesuai keyword dan sort
+$allData = $booking->ambilSemua($sort, $keyword);
+
+// Filter status jika ada
+if (!empty($status_filter)) {
+    $allData = array_filter($allData, function($row) use ($status_filter) {
+        return $row['status'] === $status_filter;
+    });
+}
+
+// Hitung total dan potong data sesuai halaman
+$total_data = count($allData);
+$total_pages = ceil($total_data / $limit);
+$data = array_slice($allData, $offset, $limit);
+
+$bookingBaru = $booking->jumlahBaru();
+
+// Untuk query string yang tetap di pagination
+function buildQuery($params, $exclude = []) {
+    return http_build_query(array_diff_key($params, array_flip($exclude)));
+}
+$queryParams = $_GET;
+?>
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <title>Jadwal Booking Servis</title>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100 p-6">
+
+<div class="max-w-5xl mx-auto bg-white shadow-md rounded-lg p-6">
+  <h1 class="text-2xl font-bold mb-4 text-gray-700">📅 Jadwal Booking Servis</h1>
+
+  <!-- Filter dan Search -->
+  <div class="bg-white rounded-lg shadow-sm border mb-6">
+    <div class="p-4">
+      <div class="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
+        <div class="flex flex-wrap gap-2">
+          <a href="?" class="px-3 py-2 text-sm font-medium rounded-lg <?= empty($status_filter) ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200' ?>">
+            Semua
+          </a>
+          <a href="?<?= buildQuery(array_merge($queryParams, ['status' => 'Menunggu']), ['page']) ?>" class="px-3 py-2 text-sm font-medium rounded-lg <?= $status_filter === 'Menunggu' ? 'bg-yellow-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200' ?>">
+            Menunggu
+          </a>
+          <a href="?<?= buildQuery(array_merge($queryParams, ['status' => 'Diproses']), ['page']) ?>" class="px-3 py-2 text-sm font-medium rounded-lg <?= $status_filter === 'Diproses' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200' ?>">
+            Diproses
+          </a>
+          <a href="?<?= buildQuery(array_merge($queryParams, ['status' => 'Selesai']), ['page']) ?>" class="px-3 py-2 text-sm font-medium rounded-lg <?= $status_filter === 'Selesai' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200' ?>">
+            Selesai
+          </a>
+
+          <?php if ($bookingBaru > 0): ?>
+            <a href="#booking-baru" class="px-3 py-2 text-sm font-medium rounded-lg bg-red-500 text-white hover:bg-red-600 animate-pulse">
+              Booking Baru (<?= $bookingBaru ?>)
+            </a>
+          <?php endif; ?>
+        </div>
+
+        <div class="flex gap-2">
+          <form method="get" class="flex gap-2">
+            <input type="hidden" name="status" value="<?= htmlspecialchars($status_filter) ?>">
+            <input type="hidden" name="sort" value="<?= $sort ?>">
+            <input type="search" name="search" value="<?= htmlspecialchars($keyword) ?>" 
+                   placeholder="Cari nama, tanggal (1 juni, juli), nomor HP..." 
+                   class="border border-gray-300 rounded-lg px-3 py-2 text-sm w-64 focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+            <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700">
+              Cari
+            </button>
+          </form>
+        </div>
+      </div>
+
+      <?php if (!empty($keyword)): ?>
+        <div class="mt-3 text-sm text-gray-600">
+          Menampilkan hasil pencarian untuk: <strong>"<?= htmlspecialchars($keyword) ?>"</strong>
+          <a href="?<?= buildQuery(array_merge($queryParams, ['search' => '']), ['page']) ?>" class="ml-2 text-blue-600 hover:underline">Hapus filter</a>
+        </div>
+      <?php endif; ?>
+    </div>
+  </div>
+
+  <?php if (count($data) > 0): ?>
+    <div class="overflow-x-auto">
+      <table class="min-w-full border text-sm text-left">
+        <thead class="bg-gray-100 text-gray-700">
+          <tr>
+            <th class="px-4 py-2">Nama</th>
+            <th class="px-4 py-2">Motor</th>
+            <th class="px-4 py-2">Layanan</th>
+            <th class="px-4 py-2">Tanggal</th>
+            <th class="px-4 py-2">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <?php foreach ($data as $row): ?>
+            <tr class="border-t hover:bg-gray-50 transition">
+              <td class="px-4 py-2"><?= htmlspecialchars($row['nama']) ?></td>
+              <td class="px-4 py-2"><?= htmlspecialchars($row['jenis_motor']) ?></td>
+              <td class="px-4 py-2"><?= htmlspecialchars($row['layanan']) ?></td>
+              <td class="px-4 py-2"><?= date('d M Y H:i', strtotime($row['tanggal'])) ?></td>
+              <td class="px-4 py-2">
+                <span class="px-2 py-1 rounded-full text-xs font-medium
+                  <?= $row['status'] === 'Menunggu' ? 'bg-yellow-100 text-yellow-700' : '' ?>
+                  <?= $row['status'] === 'Diproses' ? 'bg-blue-100 text-blue-700' : '' ?>
+                  <?= $row['status'] === 'Selesai' ? 'bg-green-100 text-green-700' : '' ?>
+                  <?= $row['status'] === 'Dibatalkan' ? 'bg-red-100 text-red-700' : '' ?>">
+                  <?= $row['status'] ?>
+                </span>
+              </td>
+            </tr>
+          <?php endforeach; ?>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Pagination -->
+    <div class="mt-6 flex justify-center space-x-2 text-sm">
+      <?php if ($page > 1): ?>
+        <a href="?<?= buildQuery(array_merge($queryParams, ['page' => $page - 1])) ?>" class="px-3 py-1 rounded border bg-white hover:bg-gray-100">« Prev</a>
+      <?php endif; ?>
+
+      <?php for ($i = 1; $i <= $total_pages; $i++): ?>
+        <a href="?<?= buildQuery(array_merge($queryParams, ['page' => $i])) ?>"
+           class="px-3 py-1 rounded border <?= $i == $page ? 'bg-blue-600 text-white' : 'bg-white hover:bg-gray-100' ?>">
+          <?= $i ?>
+        </a>
+      <?php endfor; ?>
+
+      <?php if ($page < $total_pages): ?>
+        <a href="?<?= buildQuery(array_merge($queryParams, ['page' => $page + 1])) ?>" class="px-3 py-1 rounded border bg-white hover:bg-gray-100">Next »</a>
+      <?php endif; ?>
+    </div>
+
+  <?php else: ?>
+    <p class="text-gray-600">Belum ada jadwal booking yang tersedia.</p>
+  <?php endif; ?>
+</div>
+
+</body>
+</html>
